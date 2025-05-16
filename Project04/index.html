@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poly-Bezier Editor</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        #canvas-container {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        
+        #bezier-canvas {
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            cursor: crosshair;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        #status {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>Poly-Bezier Editor</h1>
+    
+    <div class="controls">
+        <button id="new-curve-btn">New Curve</button>
+        <button id="clear-btn">Clear All</button>
+    </div>
+    
+    <div id="canvas-container">
+        <canvas id="bezier-canvas" width="800" height="500"></canvas>
+    </div>
+    
+    <div id="status">Click "New Curve" to start drawing</div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const canvas = document.getElementById('bezier-canvas');
+            const ctx = canvas.getContext('2d');
+            const statusDiv = document.getElementById('status');
+            const newCurveBtn = document.getElementById('new-curve-btn');
+            const clearBtn = document.getElementById('clear-btn');
+            
+            let curves = [];
+            let currentCurve = null;
+            let isDrawing = false;
+            let selectedPoint = null;
+            let hoverPoint = null;
+            let isDragging = false;
+            
+            // Initialize
+            function init() {
+                canvas.addEventListener('mousedown', handleMouseDown);
+                canvas.addEventListener('mousemove', handleMouseMove);
+                canvas.addEventListener('mouseup', handleMouseUp);
+                canvas.addEventListener('mouseout', handleMouseUp);
+                newCurveBtn.addEventListener('click', startNewCurve);
+                clearBtn.addEventListener('click', clearAll);
+                
+                draw();
+            }
+            
+            // Drawing functions
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw all curves
+                curves.forEach(curve => {
+                    drawBezierCurve(curve);
+                    drawControlPoints(curve);
+                });
+                
+                // Draw current curve in progress
+                if (currentCurve && currentCurve.points.length > 0) {
+                    drawBezierCurveInProgress(currentCurve);
+                    drawControlPoints(currentCurve);
+                }
+                
+                // Draw hover effect
+                if (hoverPoint && !isDragging) {
+                    drawHoverPoint(hoverPoint.point);
+                }
+            }
+            
+            function drawBezierCurve(curve) {
+                if (curve.points.length < 4) return;
+                
+                ctx.beginPath();
+                ctx.moveTo(curve.points[0].x, curve.points[0].y);
+                
+                for (let i = 1; i < curve.points.length; i += 3) {
+                    if (i + 2 < curve.points.length) {
+                        ctx.bezierCurveTo(
+                            curve.points[i].x, curve.points[i].y,
+                            curve.points[i+1].x, curve.points[i+1].y,
+                            curve.points[i+2].x, curve.points[i+2].y
+                        );
+                    }
+                }
+                
+                ctx.strokeStyle = curve.color || '#000';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+            
+            function drawBezierCurveInProgress(curve) {
+                if (curve.points.length < 2) return;
+                
+                // Draw the partial curve
+                ctx.beginPath();
+                ctx.moveTo(curve.points[0].x, curve.points[0].y);
+                
+                const completeSegments = Math.floor((curve.points.length - 1) / 3);
+                
+                for (let i = 1; i <= completeSegments * 3; i += 3) {
+                    ctx.bezierCurveTo(
+                        curve.points[i].x, curve.points[i].y,
+                        curve.points[i+1].x, curve.points[i+1].y,
+                        curve.points[i+2].x, curve.points[i+2].y
+                    );
+                }
+                
+                // Draw the incomplete segment if any
+                const remainingPoints = curve.points.length - completeSegments * 3 - 1;
+                if (remainingPoints > 0) {
+                    const lastControlPoint = curve.points[completeSegments * 3];
+                    ctx.lineTo(lastControlPoint.x, lastControlPoint.y);
+                    
+                    // Draw line to current control point if placing one
+                    if (remainingPoints === 1) {
+                        ctx.lineTo(curve.points[curve.points.length-1].x, 
+                                  curve.points[curve.points.length-1].y);
+                    }
+                }
+                
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            
+            function drawControlPoints(curve) {
+                curve.points.forEach((point, index) => {
+                    // Draw connecting lines
+                    if (index > 0) {
+                        ctx.beginPath();
+                        if (index % 3 === 1) {
+                            ctx.moveTo(point.x, point.y);
+                            ctx.lineTo(curve.points[index-1].x, curve.points[index-1].y);
+                        } else if (index % 3 === 2) {
+                            ctx.moveTo(point.x, point.y);
+                            ctx.lineTo(curve.points[index].x, curve.points[index].y);
+                        }
+                        
+                        ctx.strokeStyle = '#aaa';
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                    
+                    // Draw the point
+                    drawPoint(point, index % 3 === 0 ? '#00f' : '#f00', 
+                            index % 3 === 0 ? 8 : 6);
+                });
+            }
+            
+            function drawPoint(point, color, size = 6) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+            
+            function drawHoverPoint(point) {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 10, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+                ctx.fill();
+            }
+            
+            // Event handlers
+            function handleMouseDown(e) {
+                const mousePos = getMousePos(e);
+                
+                // Check if we clicked on a control point
+                selectedPoint = findControlPointAt(mousePos);
+                
+                if (selectedPoint) {
+                    isDragging = true;
+                    // Bring curve to front
+                    curves.splice(curves.indexOf(selectedPoint.curve), 1);
+                    curves.push(selectedPoint.curve);
+                    draw();
+                    return;
+                }
+                
+                if (!isDrawing) return;
+                
+                if (currentCurve) {
+                    if (currentCurve.points.length === 0) {
+                        currentCurve.points.push({ x: mousePos.x, y: mousePos.y });
+                        statusDiv.textContent = 'Place second control point';
+                    } 
+                    else if (currentCurve.points.length % 3 === 1) {
+                        currentCurve.points.push({ x: mousePos.x, y: mousePos.y });
+                        statusDiv.textContent = 'Place third control point';
+                    }
+                    else if (currentCurve.points.length % 3 === 2) {
+                        // Adding fourth control point
+                        currentCurve.points.push({ x: mousePos.x, y: mousePos.y });
+                        statusDiv.textContent = 'Place fourth control point';
+                    }
+                    else if (currentCurve.points.length % 3 === 0) {
+                        // Adding first control point of new segment
+                        currentCurve.points.push({ x: mousePos.x, y: mousePos.y });
+                        statusDiv.textContent = 'Place control point';
+                    }
+                    
+                    draw();
+                }
+            }
+            
+            function handleMouseMove(e) {
+                const mousePos = getMousePos(e);
+                
+                // Update hover point
+                hoverPoint = findControlPointAt(mousePos);
+                
+                if (isDragging && selectedPoint) {
+                    // Move the selected point
+                    selectedPoint.point.x = mousePos.x;
+                    selectedPoint.point.y = mousePos.y;
+                    
+                    if (selectedPoint.index % 3 === 0) {
+                        const curve = selectedPoint.curve;
+                        const idx = selectedPoint.index;
+                        
+                        // Move previous control point if exists
+                        if (idx > 0 && curve.points[idx-1]) {
+                            const dx = mousePos.x - selectedPoint.point.x;
+                            const dy = mousePos.y - selectedPoint.point.y;
+                            curve.points[idx-1].x += dx;
+                            curve.points[idx-1].y += dy;
+                        }
+                        
+                        // Move next control point if exists
+                        if (idx < curve.points.length - 1 && curve.points[idx+1]) {
+                            const dx = mousePos.x - selectedPoint.point.x;
+                            const dy = mousePos.y - selectedPoint.point.y;
+                            curve.points[idx+1].x += dx;
+                            curve.points[idx+1].y += dy;
+                        }
+                    }
+                }
+                
+                // Update cursor
+                canvas.style.cursor = (hoverPoint || isDrawing) ? 'pointer' : 'default';
+                
+                draw();
+            }
+            
+            function handleMouseUp() {
+                isDragging = false;
+                selectedPoint = null;
+            }
+            
+            // Helper functions
+            function getMousePos(e) {
+                const rect = canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+            
+            function findControlPointAt(pos) {
+                const hitRadius = 10;
+                
+                // Check curves in reverse order (newest first)
+                for (let c = curves.length - 1; c >= 0; c--) {
+                    const curve = curves[c];
+                    for (let i = 0; i < curve.points.length; i++) {
+                        const point = curve.points[i];
+                        const distance = Math.sqrt(
+                            Math.pow(point.x - pos.x, 2) + 
+                            Math.pow(point.y - pos.y, 2)
+                        );
+                        
+                        if (distance < hitRadius) {
+                            return { curve, point, index: i };
+                        }
+                    }
+                }
+                
+                // Check current curve if drawing
+                if (currentCurve) {
+                    for (let i = 0; i < currentCurve.points.length; i++) {
+                        const point = currentCurve.points[i];
+                        const distance = Math.sqrt(
+                            Math.pow(point.x - pos.x, 2) + 
+                            Math.pow(point.y - pos.y, 2)
+                        );
+                        
+                        if (distance < hitRadius) {
+                            return { curve: currentCurve, point, index: i };
+                        }
+                    }
+                }
+                
+                return null;
+            }
+            
+            // Control functions
+            function startNewCurve() {
+                if (currentCurve && currentCurve.points.length >= 4) {
+                    finishCurrentCurve();
+                }
+                
+                currentCurve = {
+                    points: [],
+                    color: getRandomColor()
+                };
+                
+                isDrawing = true;
+                statusDiv.textContent = 'Place first control point';
+                draw();
+            }
+            
+            function finishCurrentCurve() {
+                if (currentCurve && currentCurve.points.length >= 4) {
+
+					if ((currentCurve.points.length - 1) % 3 !== 0) {
+						// Remove the extra points that don't make a full segment
+						while ((currentCurve.points.length - 1) % 3 !== 0) {
+							currentCurve.points.pop();
+						}
+					}
+
+                    
+                    curves.push(currentCurve);
+                    currentCurve = null;
+                    isDrawing = false;
+                    statusDiv.textContent = 'Curve completed. Click "New Curve" to draw another.';
+                    draw();
+                }
+            }
+            
+            function clearAll() {
+                curves = [];
+                currentCurve = null;
+                isDrawing = false;
+                statusDiv.textContent = 'Click "New Curve" to start drawing';
+                draw();
+            }
+            
+            function getRandomColor() {
+                const letters = '0123456789ABCDEF';
+                let color = '#';
+                for (let i = 0; i < 6; i++) {
+                    color += letters[Math.floor(Math.random() * 16)];
+                }
+                return color;
+            }
+            
+            // Initialize the app
+            init();
+        });
+    </script>
+</body>
+</html>
